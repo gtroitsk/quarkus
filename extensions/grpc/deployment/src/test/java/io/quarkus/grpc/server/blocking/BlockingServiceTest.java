@@ -1,20 +1,5 @@
 package io.quarkus.grpc.server.blocking;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.entry;
-
-import java.util.List;
-
-import io.grpc.testing.integration.TestServiceGrpc;
-import jakarta.inject.Inject;
-
-import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.spec.JavaArchive;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.RegisterExtension;
-
 import grpc.health.v1.HealthGrpc;
 import grpc.health.v1.HealthOuterClass;
 import io.grpc.ManagedChannel;
@@ -22,15 +7,26 @@ import io.grpc.ManagedChannelBuilder;
 import io.grpc.examples.helloworld.GreeterGrpc;
 import io.grpc.examples.helloworld.HelloReply;
 import io.grpc.examples.helloworld.HelloRequest;
-import io.grpc.reflection.v1.MutinyServerReflectionGrpc;
-import io.grpc.reflection.v1.ServerReflectionRequest;
-import io.grpc.reflection.v1.ServerReflectionResponse;
-import io.grpc.reflection.v1.ServiceResponse;
+import io.grpc.examples.helloworld.HelloWorldProto;
+import io.grpc.reflection.v1.*;
+import io.grpc.testing.integration.TestServiceGrpc;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.grpc.runtime.health.GrpcHealthStorage;
 import io.quarkus.grpc.server.services.BlockingMutinyHelloService;
 import io.quarkus.test.QuarkusUnitTest;
 import io.smallrye.mutiny.Multi;
+import jakarta.inject.Inject;
+import org.jboss.shrinkwrap.api.ShrinkWrap;
+import org.jboss.shrinkwrap.api.spec.JavaArchive;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 public class BlockingServiceTest {
 
@@ -41,6 +37,7 @@ public class BlockingServiceTest {
                     () -> ShrinkWrap.create(JavaArchive.class)
                             .addPackage(HealthGrpc.class.getPackage())
                             .addPackage(GreeterGrpc.class.getPackage())
+                            .addPackage(TestServiceGrpc.class.getPackage())
                             .addClasses(BlockingMutinyHelloService.class))
             .withConfigurationResource("reflection-config.properties");
 
@@ -51,6 +48,11 @@ public class BlockingServiceTest {
 
     @GrpcClient("reflection-service")
     MutinyServerReflectionGrpc.MutinyServerReflectionStub reflection;
+
+    @GrpcClient("test-service")
+    TestServiceGrpc.TestServiceBlockingStub test;
+
+
 
     @BeforeEach
     public void init() {
@@ -87,7 +89,7 @@ public class BlockingServiceTest {
         ServerReflectionResponse response = invoke(request);
         List<ServiceResponse> list = response.getListServicesResponse().getServiceList();
         assertThat(list).hasSize(2)
-                .anySatisfy(r -> assertThat(r.getName()).isEqualTo("helloworld.Greeter"))
+                .anySatisfy(r -> assertThat(r.getName()).isEqualTo(GreeterGrpc.SERVICE_NAME))
                 .anySatisfy(r -> assertThat(r.getName()).isEqualTo("grpc.health.v1.Health"));
     }
 
@@ -109,15 +111,33 @@ public class BlockingServiceTest {
 
         ServerReflectionResponse response = invoke(request);
 
-//        System.out.println(response.getListServicesResponse().getServiceCount());
-//        System.out.println(response.getListServicesResponse().getAllFields());
-//        System.out.println(response.getListServicesResponse().getService(1));
-
         List<ServiceResponse> list = response.getListServicesResponse().getServiceList();
-        assertThat(list).hasSize(3)
+        assertThat(list).hasSize(2)
                 .anySatisfy(r -> assertThat(r.getName()).isEqualTo(GreeterGrpc.SERVICE_NAME))
-                .anySatisfy(r -> assertThat(r.getName()).isEqualTo(TestServiceGrpc.SERVICE_NAME))
                 .anySatisfy(r -> assertThat(r.getName()).isEqualTo("grpc.health.v1.Health"));
+
+        String[] splittedServiceName = list.get(0).getName().split("[.]");
+        String protoFileName = splittedServiceName[0] + ".proto";
+
+        // Request to server with given proto file name
+        ServerReflectionRequest request2 = ServerReflectionRequest.newBuilder()
+                .setHost("localhost")
+                .setFileByFilename(protoFileName)
+                .build();
+
+        ServerReflectionResponse expected = ServerReflectionResponse.newBuilder()
+                .setValidHost("localhost")
+                .setOriginalRequest(request2)
+                .setFileDescriptorResponse(
+                        FileDescriptorResponse.newBuilder()
+                                .addFileDescriptorProto(
+                                        // TODO: get class name from service name
+                                        HelloWorldProto.getDescriptor().toProto().toByteString())
+                                .build())
+                .build();
+
+        ServerReflectionResponse response2 = invoke(request2);
+        assertThat(response2).isEqualTo(expected);
     }
 
     private ServerReflectionResponse invoke(ServerReflectionRequest request) {
