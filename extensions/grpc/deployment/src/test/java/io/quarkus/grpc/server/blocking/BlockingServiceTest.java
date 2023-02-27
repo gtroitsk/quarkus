@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.entry;
 
 import java.util.List;
 
+import io.grpc.testing.integration.TestServiceGrpc;
 import jakarta.inject.Inject;
 
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -79,7 +80,7 @@ public class BlockingServiceTest {
     }
 
     @Test
-    public void testReflection() {
+    public void testReflection_getServiceList() {
         ServerReflectionRequest request = ServerReflectionRequest.newBuilder().setHost("localhost")
                 .setListServices("").build();
 
@@ -87,6 +88,35 @@ public class BlockingServiceTest {
         List<ServiceResponse> list = response.getListServicesResponse().getServiceList();
         assertThat(list).hasSize(2)
                 .anySatisfy(r -> assertThat(r.getName()).isEqualTo("helloworld.Greeter"))
+                .anySatisfy(r -> assertThat(r.getName()).isEqualTo("grpc.health.v1.Health"));
+    }
+
+    @Test
+    public void testReflection_serviceCount() {
+        ServerReflectionRequest request = ServerReflectionRequest.newBuilder()
+                .setListServices("").build();
+
+        ServerReflectionResponse response = invoke(request);
+
+        int numberOfServices = response.getListServicesResponse().getServiceCount();
+        assertThat(numberOfServices).isEqualTo(3);
+    }
+
+    @Test
+    public void testReflection_get() {
+        ServerReflectionRequest request = ServerReflectionRequest.newBuilder()
+                .setListServices("").build();
+
+        ServerReflectionResponse response = invoke(request);
+
+//        System.out.println(response.getListServicesResponse().getServiceCount());
+//        System.out.println(response.getListServicesResponse().getAllFields());
+//        System.out.println(response.getListServicesResponse().getService(1));
+
+        List<ServiceResponse> list = response.getListServicesResponse().getServiceList();
+        assertThat(list).hasSize(3)
+                .anySatisfy(r -> assertThat(r.getName()).isEqualTo(GreeterGrpc.SERVICE_NAME))
+                .anySatisfy(r -> assertThat(r.getName()).isEqualTo(TestServiceGrpc.SERVICE_NAME))
                 .anySatisfy(r -> assertThat(r.getName()).isEqualTo("grpc.health.v1.Health"));
     }
 
